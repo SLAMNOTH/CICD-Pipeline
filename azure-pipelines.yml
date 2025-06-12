@@ -1,37 +1,24 @@
-# azure-pipelines.yml
+# azure-pipelines.yml (Updated with CLI upgrade step)
 
-# Trigger de pipeline automatisch bij wijzigingen in de 'main' branch.
 trigger:
 - none
 
-# Definieer variabelen die in de hele pipeline worden gebruikt.
 variables:
-  # Naam van de resourcegroep waar de infrastructuur wordt uitgerold.
   resourceGroupName: 'JUICT-HUB-SPOKE-PROD'
-
-  # Azure-regio voor de implementatie.
   location: 'westeurope'
-
-  # Pad naar de Bicep-bestanden in de repository.
   bicepTemplateFile: './main.bicep'
   bicepParameterFile: './main.bicepparam'
-
-  # Naam van de Azure service connection in je DevOps-project.
-  # Deze service connection moet rechten hebben op de resourcegroep.
   azureServiceConnection: 'azure-connection'
 
 stages:
 
-# =========================================================================
-# FASE 1: VALIDATE - Controleer de code op syntax en beveiligingsfouten.
-# =========================================================================
 - stage: Validate
   displayName: 'Fase 1: Valideer Bicep & Beveiliging'
   jobs:
   - job: ValidateCode
     displayName: 'Valideer Code Kwaliteit'
     pool:
-      vmImage: 'ubuntu-latest' # Gebruik een door Microsoft gehoste agent.
+      vmImage: 'ubuntu-latest'
     steps:
     - task: AzureCLI@2
       displayName: 'Valideer Bicep syntax (bicep build)'
@@ -39,27 +26,34 @@ stages:
         azureSubscription: $(azureServiceConnection)
         scriptType: 'bash'
         scriptLocation: 'inlineScript'
-        inlineScript: |
-          echo "Controleren van Bicep-bestanden op syntaxfouten..."
-          az bicep build --file $(bicepTemplateFile)
-
-    # Deze taak scant je code op veelvoorkomende beveiligingsproblemen.
+        inlineScript: 'az bicep build --file $(bicepTemplateFile)'
     - task: MicrosoftSecurityDevOps@1
       displayName: 'Voer Microsoft Security DevOps-analyse uit'
 
-# =========================================================================
-# FASE 2: TEST - Simuleer de uitrol met 'what-if' om de impact te zien.
-# =========================================================================
 - stage: Test
   displayName: 'Fase 2: Test Infrastructuur (What-If)'
   dependsOn: Validate
-  condition: succeeded() # Voer alleen uit als de validatiefase succesvol was.
+  condition: succeeded()
   jobs:
   - job: WhatIfDeployment
     displayName: 'Voorbeeld van uitrol met What-If'
     pool:
       vmImage: 'ubuntu-latest'
     steps:
+    # --- NIEUWE STAP TOEGEVOEGD ---
+    - task: AzureCLI@2
+      displayName: 'Upgrade Azure CLI naar de laatste versie'
+      inputs:
+        azureSubscription: $(azureServiceConnection)
+        scriptType: 'bash'
+        scriptLocation: 'inlineScript'
+        inlineScript: |
+          echo "Upgraden van Azure CLI..."
+          az upgrade --yes
+          echo "Azure CLI versie na upgrade:"
+          az --version
+    # --- EINDE NIEUWE STAP ---
+
     - task: AzureCLI@2
       displayName: 'Voer What-If uitrol uit'
       inputs:
@@ -72,11 +66,8 @@ stages:
             --resource-group $(resourceGroupName) \
             --template-file $(bicepTemplateFile) \
             --parameters $(bicepParameterFile) \
-            --parameters adminPassword=$(adminPassword) # Geef het geheime wachtwoord door
+            --parameters adminPassword=$(adminPassword)
 
-# =========================================================================
-# FASE 3: DEPLOY - Rol de infrastructuur daadwerkelijk uit naar Azure.
-# =========================================================================
 - stage: Deploy
   displayName: 'Fase 3: Rol Infrastructuur Uit'
   dependsOn: Test
