@@ -1,78 +1,108 @@
-trigger:
-- none # Trigger op wijzigingen in de main branch
+# azure-pipelines.yml
 
+# Trigger de pipeline automatisch bij wijzigingen in de 'main' branch.
+trigger:
+- main
+
+# Definieer variabelen die in de hele pipeline worden gebruikt.
 variables:
+  # Naam van de resourcegroep waar de infrastructuur wordt uitgerold.
   resourceGroupName: 'JUICT-HUB-SPOKE-PROD'
+
+  # Azure-regio voor de implementatie.
   location: 'westeurope'
-  templateFile: './main.bicep'
-  parameterFile: './azuredeploy.parameters.json'
-  serviceConnection: 'azure-connection' # Gebruik een gescoopte service connection
+
+  # Pad naar de Bicep-bestanden in de repository.
+  bicepTemplateFile: './main.bicep'
+  bicepParameterFile: './main.bicepparam'
+
+  # Naam van de Azure service connection in je DevOps-project.
+  # Deze service connection moet rechten hebben op de resourcegroep.
+  azureServiceConnection: 'azure-connection'
 
 stages:
+
+# =========================================================================
+# FASE 1: VALIDATE - Controleer de code op syntax en beveiligingsfouten.
+# =========================================================================
 - stage: Validate
-  displayName: 'Validate Bicep & Security'
+  displayName: 'Fase 1: Valideer Bicep & Beveiliging'
   jobs:
-  - job: BicepValidation
-    displayName: 'Validate Bicep Syntax'
+  - job: ValidateCode
+    displayName: 'Valideer Code Kwaliteit'
     pool:
-      vmImage: 'ubuntu-latest'
+      vmImage: 'ubuntu-latest' # Gebruik een door Microsoft gehoste agent.
     steps:
     - task: AzureCLI@2
-      displayName: 'Validate Bicep Build'
+      displayName: 'Valideer Bicep syntax (bicep build)'
       inputs:
-        azureSubscription: $(serviceConnection)
-        scriptType: 'bash'
-        scriptLocation: 'inlineScript'
-        inlineScript: 'az bicep build --file $(templateFile)'
-
-    - task: MicrosoftSecurityDevOps@1 # Security scanning toevoegen
-      displayName: 'Run Microsoft Security DevOps Analysis'
-      # Deze taak scant je code op zwakheden en geheimen
-
-- stage: Test
-  displayName: 'Test Infra (What-If)'
-  dependsOn: Validate
-  condition: succeeded()
-  jobs:
-  - job: WhatIfDeployment
-    displayName: 'What-if Deployment Preview'
-    pool:
-      vmImage: 'ubuntu-latest'
-    steps:
-    - task: AzureCLI@2
-      displayName: 'Run What-If'
-      inputs:
-        azureSubscription: $(serviceConnection)
+        azureSubscription: $(azureServiceConnection)
         scriptType: 'bash'
         scriptLocation: 'inlineScript'
         inlineScript: |
+          echo "Controleren van Bicep-bestanden op syntaxfouten..."
+          az bicep build --file $(bicepTemplateFile)
+
+    # Deze taak scant je code op veelvoorkomende beveiligingsproblemen.
+    - task: MicrosoftSecurityDevOps@1
+      displayName: 'Voer Microsoft Security DevOps-analyse uit'
+
+# =========================================================================
+# FASE 2: TEST - Simuleer de uitrol met 'what-if' om de impact te zien.
+# =========================================================================
+- stage: Test
+  displayName: 'Fase 2: Test Infrastructuur (What-If)'
+  dependsOn: Validate
+  condition: succeeded() # Voer alleen uit als de validatiefase succesvol was.
+  jobs:
+  - job: WhatIfDeployment
+    displayName: 'Voorbeeld van uitrol met What-If'
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+    - task: AzureCLI@2
+      displayName: 'Voer What-If uitrol uit'
+      inputs:
+        azureSubscription: $(azureServiceConnection)
+        scriptType: 'bash'
+        scriptLocation: 'inlineScript'
+        inlineScript: |
+          echo "Simuleren van de uitrol om wijzigingen te bekijken..."
           az deployment group what-if \
             --resource-group $(resourceGroupName) \
-            --template-file $(templateFile) \
-            --parameters $(parameterFile)
+            --template-file $(bicepTemplateFile) \
+            --parameters $(bicepParameterFile) \
+            --parameters adminPassword=$(adminPassword) # Geef het geheime wachtwoord door
 
+# =========================================================================
+# FASE 3: DEPLOY - Rol de infrastructuur daadwerkelijk uit naar Azure.
+# =========================================================================
 - stage: Deploy
-  displayName: 'Deploy Infrastructure'
+  displayName: 'Fase 3: Rol Infrastructuur Uit'
   dependsOn: Test
   condition: succeeded()
   jobs:
-  - deployment: DeployInfra
-    displayName: 'Deploy Hub and Spoke'
-    environment: 'production' # Gebruik DevOps environments voor goedkeuringen
+  - deployment: DeployInfrastructure
+    displayName: 'Uitrol van Hub-en-Spoke Architectuur'
     pool:
       vmImage: 'ubuntu-latest'
+    # Gebruik een 'environment' om handmatige goedkeuringen in te stellen voor productie.
+    environment: 'production' 
     strategy:
       runOnce:
         deploy:
           steps:
           - task: AzureCLI@2
-            displayName: 'Deploy Bicep Template'
+            displayName: 'Rol Bicep-template uit naar Azure'
             inputs:
-              azureSubscription: $(serviceConnection)
+              azureSubscription: $(azureServiceConnection)
               scriptType: 'bash'
               scriptLocation: 'inlineScript'
               inlineScript: |
+                echo "Starten van de uitrol van de hub-en-spoke infrastructuur..."
                 az deployment group create \
+                  --name "pipeline-deployment-$(Build.BuildId)" \
                   --resource-group $(resourceGroupName) \
-                  --template-file $(templateFile) \
-                  --parameters $(parameterFile)
+                  --template-file $(bicepTemplateFile) \
+                  --parameters $(bicepParameterFile) \
+                  --parameters adminPassword=$(adminPassword) # Geef het geheime wachtwoord door
