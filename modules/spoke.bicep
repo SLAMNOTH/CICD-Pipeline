@@ -1,4 +1,4 @@
-// File: modules/spoke.bicep
+// File: modules/spoke.bicep (Corrected)
 
 @description('De locatie voor alle resources.')
 param location string
@@ -12,10 +12,18 @@ param spokeVnetAddressPrefix string = '10.1.0.0/16'
 @description('De resource ID van het virtuele netwerk van de hub.')
 param hubVnetId string
 
+@description('De naam van het virtuele netwerk van de hub.')
+param hubVnetName string
+
 @description('Het privé IP-adres van de Azure Firewall in de hub.')
 param firewallPrivateIp string
 
 var defaultSubnetName = 'snet-workload'
+
+// Creëer een symbolische referentie naar het hub VNet, dat in een andere module bestaat.
+resource hubVnetRef 'Microsoft.Network/virtualNetworks@2023-05-01' existing = {
+  name: hubVnetName
+}
 
 resource spokeVnet 'Microsoft.Network/virtualNetworks@2023-05-01' = {
   name: spokeVnetName
@@ -37,7 +45,6 @@ resource spokeVnet 'Microsoft.Network/virtualNetworks@2023-05-01' = {
   }
 }
 
-// Route Tabel om verkeer naar de Firewall te sturen
 resource routeTable 'Microsoft.Network/routeTables@2023-05-01' = {
   name: '${spokeVnetName}-rt'
   location: location
@@ -55,7 +62,6 @@ resource routeTable 'Microsoft.Network/routeTables@2023-05-01' = {
   }
 }
 
-// Koppel de Route Tabel aan het subnet van de spoke
 resource subnet 'Microsoft.Network/virtualNetworks/subnets@2023-05-01' = {
   parent: spokeVnet
   name: defaultSubnetName
@@ -66,7 +72,6 @@ resource subnet 'Microsoft.Network/virtualNetworks/subnets@2023-05-01' = {
   }
 }
 
-// VNet Peering van Spoke naar Hub
 resource spokeToHubPeering 'Microsoft.Network/virtualNetworks/virtualNetworkPeerings@2023-05-01' = {
   parent: spokeVnet
   name: '${spokeVnetName}-to-hub'
@@ -74,21 +79,21 @@ resource spokeToHubPeering 'Microsoft.Network/virtualNetworks/virtualNetworkPeer
     allowVirtualNetworkAccess: true
     allowForwardedTraffic: true
     allowGatewayTransit: false
-    useRemoteGateways: true // Staat gebruik van de gateway in de hub toe
+    useRemoteGateways: true
     remoteVirtualNetwork: {
       id: hubVnetId
     }
   }
 }
 
-// VNet Peering van Hub naar Spoke
+// VNet Peering van Hub naar Spoke. Gebruik nu de correcte symbolische referentie.
 resource hubToSpokePeering 'Microsoft.Network/virtualNetworks/virtualNetworkPeerings@2023-05-01' = {
-  parent: resourceId(split(hubVnetId, '/')[1], 'Microsoft.Network/virtualNetworks', split(hubVnetId, '/')[8])
+  parent: hubVnetRef // Gebruik de symbolische referentie.
   name: 'hub-to-${spokeVnetName}'
   properties: {
     allowVirtualNetworkAccess: true
     allowForwardedTraffic: true
-    allowGatewayTransit: true // Staat toe dat de spoke de hub-gateway gebruikt
+    allowGatewayTransit: true
     useRemoteGateways: false
     remoteVirtualNetwork: {
       id: spokeVnet.id
@@ -96,5 +101,4 @@ resource hubToSpokePeering 'Microsoft.Network/virtualNetworks/virtualNetworkPeer
   }
 }
 
-// Output die nodig is voor de VM-module
 output spokeSubnetId string = subnet.id
