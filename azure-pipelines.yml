@@ -31,43 +31,36 @@ stages:
       displayName: 'Voer Microsoft Security DevOps-analyse uit'
 
 - stage: Test
-  displayName: 'Fase 2: Test Infrastructuur (What-If)'
+  displayName: 'Fase 2: Test Infrastructuur (What-If met PowerShell)'
   dependsOn: Validate
   condition: succeeded()
   jobs:
   - job: WhatIfDeployment
-    displayName: 'Voorbeeld van uitrol met What-If'
+    displayName: 'Voorbeeld van uitrol met PowerShell What-If'
     pool:
-      vmImage: 'ubuntu-latest'
+      vmImage: 'windows-latest' # PowerShell werkt het beste op een Windows-agent
     steps:
-    # --- NIEUWE STAP TOEGEVOEGD ---
-    - task: AzureCLI@2
-      displayName: 'Upgrade Azure CLI naar de laatste versie'
+    - task: AzurePowerShell@5
+      displayName: 'Voer What-If uitrol uit met PowerShell'
       inputs:
         azureSubscription: $(azureServiceConnection)
-        scriptType: 'bash'
-        scriptLocation: 'inlineScript'
-        inlineScript: |
-          echo "Upgraden van Azure CLI..."
-          az upgrade --yes
-          echo "Azure CLI versie na upgrade:"
-          az --version
-    # --- EINDE NIEUWE STAP ---
+        ScriptType: 'InlineScript'
+        Inline: |
+          Write-Host "Simuleren van de uitrol met PowerShell om wijzigingen te bekijken..."
 
-    - task: AzureCLI@2
-      displayName: 'Voer What-If uitrol uit'
-      inputs:
-        azureSubscription: $(azureServiceConnection)
-        scriptType: 'bash'
-        scriptLocation: 'inlineScript'
-        inlineScript: |
-          echo "Simuleren van de uitrol om wijzigingen te bekijken..."
-          az deployment group what-if \
-            --resource-group $(resourceGroupName) \
-            --template-file $(bicepTemplateFile) \
-            --parameters $(bicepParameterFile) \
-            --parameters adminPassword=$(adminPassword)
+          # Maak een hashtable voor de parameters om het geheime wachtwoord veilig door te geven
+          $templateParameters = @{
+            "adminPassword" = "$(adminPassword)"
+          }
 
+          Get-AzResourceGroupDeploymentWhatIfResult `
+            -ResourceGroupName "$(resourceGroupName)" `
+            -TemplateFile "$(bicepTemplateFile)" `
+            -TemplateParameterFile "$(bicepParameterFile)" `
+            -TemplateParameterObject $templateParameters
+
+        pwsh: true # Zorgt ervoor dat PowerShell Core wordt gebruikt
+        
 - stage: Deploy
   displayName: 'Fase 3: Rol Infrastructuur Uit'
   dependsOn: Test
