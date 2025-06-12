@@ -30,6 +30,7 @@ stages:
     - task: MicrosoftSecurityDevOps@1
       displayName: 'Voer Microsoft Security DevOps-analyse uit'
 
+
 - stage: Test
   displayName: 'Fase 2: Test Infrastructuur (What-If met PowerShell)'
   dependsOn: Validate
@@ -38,7 +39,7 @@ stages:
   - job: WhatIfDeployment
     displayName: 'Voorbeeld van uitrol met PowerShell What-If'
     pool:
-      vmImage: 'windows-latest' # PowerShell werkt het beste op een Windows-agent
+      vmImage: 'windows-latest'
     steps:
     - task: AzurePowerShell@5
       displayName: 'Voer What-If uitrol uit met PowerShell'
@@ -52,15 +53,27 @@ stages:
             "adminPassword" = "$(adminPassword)"
           }
 
-          Get-AzResourceGroupDeploymentWhatIfResult `
+          # Stap 1: Voer de What-If uit en sla het resultaat op in een variabele.
+          $whatIfResult = Get-AzResourceGroupDeploymentWhatIfResult `
             -ResourceGroupName "$(resourceGroupName)" `
             -TemplateFile "$(bicepTemplateFile)" `
             -TemplateParameterFile "$(bicepParameterFile)" `
             -TemplateParameterObject $templateParameters
 
-        # --- DEZE REGEL IS TOEGEVOEGD EN CRUCIAAL ---
-        azurePowerShellVersion: 'LatestVersion' 
+          # Stap 2: Controleer of er wijzigingen zijn en formatteer ze als JSON voor de log.
+          if ($whatIfResult.Changes) {
+            Write-Host "Gedetecteerde wijzigingen:"
+            # De .Changes property bevat de lijst met wijzigingen.
+            # ConvertTo-Json maakt het leesbaar in de pipeline log.
+            # -Depth 5 zorgt ervoor dat alle details worden getoond.
+            $whatIfResult.Changes | ConvertTo-Json -Depth 5 | Write-Output
+          } else {
+            Write-Host "What-If is succesvol uitgevoerd. Er zijn geen wijzigingen gedetecteerd."
+          }
+
+        azurePowerShellVersion: 'LatestVersion'
         pwsh: true
+
 
 - stage: Deploy
   displayName: 'Fase 3: Rol Infrastructuur Uit'
