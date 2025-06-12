@@ -1,0 +1,78 @@
+trigger:
+- none # Trigger op wijzigingen in de main branch
+
+variables:
+  resourceGroupName: 'JUICT-HUB-SPOKE-PROD'
+  location: 'westeurope'
+  templateFile: './main.bicep'
+  parameterFile: './azuredeploy.parameters.json'
+  serviceConnection: 'azure-connection' # Gebruik een gescoopte service connection
+
+stages:
+- stage: Validate
+  displayName: 'Validate Bicep & Security'
+  jobs:
+  - job: BicepValidation
+    displayName: 'Validate Bicep Syntax'
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+    - task: AzureCLI@2
+      displayName: 'Validate Bicep Build'
+      inputs:
+        azureSubscription: $(serviceConnection)
+        scriptType: 'bash'
+        scriptLocation: 'inlineScript'
+        inlineScript: 'az bicep build --file $(templateFile)'
+
+    - task: MicrosoftSecurityDevOps@1 # Security scanning toevoegen
+      displayName: 'Run Microsoft Security DevOps Analysis'
+      # Deze taak scant je code op zwakheden en geheimen
+
+- stage: Test
+  displayName: 'Test Infra (What-If)'
+  dependsOn: Validate
+  condition: succeeded()
+  jobs:
+  - job: WhatIfDeployment
+    displayName: 'What-if Deployment Preview'
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+    - task: AzureCLI@2
+      displayName: 'Run What-If'
+      inputs:
+        azureSubscription: $(serviceConnection)
+        scriptType: 'bash'
+        scriptLocation: 'inlineScript'
+        inlineScript: |
+          az deployment group what-if \
+            --resource-group $(resourceGroupName) \
+            --template-file $(templateFile) \
+            --parameters $(parameterFile)
+
+- stage: Deploy
+  displayName: 'Deploy Infrastructure'
+  dependsOn: Test
+  condition: succeeded()
+  jobs:
+  - deployment: DeployInfra
+    displayName: 'Deploy Hub and Spoke'
+    environment: 'production' # Gebruik DevOps environments voor goedkeuringen
+    pool:
+      vmImage: 'ubuntu-latest'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - task: AzureCLI@2
+            displayName: 'Deploy Bicep Template'
+            inputs:
+              azureSubscription: $(serviceConnection)
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                az deployment group create \
+                  --resource-group $(resourceGroupName) \
+                  --template-file $(templateFile) \
+                  --parameters $(parameterFile)
