@@ -1,4 +1,4 @@
-// File: modules/hub.bicep
+// File: modules/hub.bicep (Corrected)
 
 @description('De locatie voor alle resources.')
 param location string
@@ -9,72 +9,8 @@ param hubVnetName string = 'vnet-hub'
 @description('De adresruimte voor het virtuele netwerk van de hub.')
 param hubVnetAddressPrefix string = '10.0.0.0/16'
 
-// Definieer de subnetten die nodig zijn in de hub
 var firewallSubnetName = 'AzureFirewallSubnet'
 var bastionSubnetName = 'AzureBastionSubnet'
-
-resource hubVnet 'Microsoft.Network/virtualNetworks@2023-05-01' = {
-  name: hubVnetName
-  location: location
-  properties: {
-    addressSpace: {
-      addressPrefixes: [
-        hubVnetAddressPrefix
-      ]
-    }
-    subnets: [
-      {
-        name: firewallSubnetName
-        properties: {
-          addressPrefix: '10.0.1.0/26' // Dedicated subnet for Azure Firewall
-        }
-      }
-      {
-        name: bastionSubnetName
-        properties: {
-          addressPrefix: '10.0.2.0/26' // Dedicated subnet for Azure Bastion
-        }
-      }
-    ]
-  }
-}
-
-// Publiek IP-adres voor de Azure Firewall
-resource firewallPublicIp 'Microsoft.Network/publicIPAddresses@2023-05-01' = {
-  name: '${hubVnetName}-fw-pip'
-  location: location
-  sku: {
-    name: 'Standard'
-  }
-  properties: {
-    publicIPAllocationMethod: 'Static'
-  }
-}
-
-// Azure Firewall resource
-resource firewall 'Microsoft.Network/azureFirewalls@2023-05-01' = {
-  name: '${hubVnetName}-fw'
-  location: location
-  properties: {
-    sku: {
-      name: 'AZFW_VNet'
-      tier: 'Standard'
-    }
-    ipConfigurations: [
-      {
-        name: 'firewall-ip-config'
-        properties: {
-          publicIPAddress: {
-            id: firewallPublicIp.id
-          }
-          subnet: {
-            id: resourceId('Microsoft.Network/virtualNetworks/subnets', hubVnetName, firewallSubnetName)
-          }
-        }
-      }
-    ]
-  }
-}
 
 // Publiek IP-adres en NAT Gateway voor uitgaand verkeer
 resource natGatewayPublicIp 'Microsoft.Network/publicIPAddresses@2023-05-01' = {
@@ -96,14 +32,59 @@ resource natGateway 'Microsoft.Network/natGateways@2023-05-01' = {
   }
 }
 
-// Koppel de NAT Gateway aan het subnet van de Firewall
-resource firewallSubnet 'Microsoft.Network/virtualNetworks/subnets@2023-05-01' existing = {
-  parent: hubVnet
-  name: firewallSubnetName
+resource hubVnet 'Microsoft.Network/virtualNetworks@2023-05-01' = {
+  name: hubVnetName
+  location: location
   properties: {
-    natGateway: {
-      id: natGateway.id
+    addressSpace: {
+      addressPrefixes: [
+        hubVnetAddressPrefix
+      ]
     }
+    subnets: [
+      {
+        name: firewallSubnetName
+        properties: {
+          addressPrefix: '10.0.1.0/26'
+          // Koppel de NAT Gateway hier direct aan het subnet
+          natGateway: {
+            id: natGateway.id
+          }
+        }
+      }
+      {
+        name: bastionSubnetName
+        properties: {
+          addressPrefix: '10.0.2.0/26'
+        }
+      }
+    ]
+  }
+}
+
+// Publiek IP-adres voor de Azure Firewall
+resource firewallPublicIp 'Microsoft.Network/publicIPAddresses@2023-05-01' = {
+  name: '${hubVnetName}-fw-pip'
+  location: location
+  sku: { name: 'Standard' }
+  properties: { publicIPAllocationMethod: 'Static' }
+}
+
+// Azure Firewall resource
+resource firewall 'Microsoft.Network/azureFirewalls@2023-05-01' = {
+  name: '${hubVnetName}-fw'
+  location: location
+  properties: {
+    sku: { name: 'AZFW_VNet', tier: 'Standard' }
+    ipConfigurations: [
+      {
+        name: 'firewall-ip-config'
+        properties: {
+          publicIPAddress: { id: firewallPublicIp.id }
+          subnet: { id: hubVnet.properties.subnets[0].id }
+        }
+      }
+    ]
   }
 }
 
@@ -124,18 +105,14 @@ resource bastionHost 'Microsoft.Network/bastionHosts@2023-05-01' = {
       {
         name: 'bastion-ip-config'
         properties: {
-          subnet: {
-            id: resourceId('Microsoft.Network/virtualNetworks/subnets', hubVnetName, bastionSubnetName)
-          }
-          publicIPAddress: {
-            id: bastionPublicIp.id
-          }
+          subnet: { id: hubVnet.properties.subnets[1].id }
+          publicIPAddress: { id: bastionPublicIp.id }
         }
       }
     ]
   }
 }
 
-// Outputs die nodig zijn voor de spoke-module
 output hubVnetId string = hubVnet.id
+output hubVnetName string = hubVnet.name
 output firewallPrivateIp string = firewall.properties.ipConfigurations[0].properties.privateIPAddress
