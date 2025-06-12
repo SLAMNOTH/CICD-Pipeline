@@ -1,4 +1,4 @@
-// File: main.bicep
+// File: main.bicep (Corrected)
 
 @description('De primaire Azure-regio voor de implementatie.')
 param location string
@@ -26,12 +26,10 @@ module spoke 'modules/spoke.bicep' = {
   name: 'spokeDeployment'
   params: {
     location: location
-    hubVnetId: hub.outputs.hubVnetId // Koppel met de hub
-    firewallPrivateIp: hub.outputs.firewallPrivateIp // Gebruik het IP van de firewall voor routering
+    hubVnetId: hub.outputs.hubVnetId
+    hubVnetName: hub.outputs.hubVnetName
+    firewallPrivateIp: hub.outputs.firewallPrivateIp
   }
-  dependsOn: [
-    hub // Zorg ervoor dat de hub eerst is aangemaakt
-  ]
 }
 
 // Implementeer de VM-module in het subnet van de spoke
@@ -40,11 +38,8 @@ module vm 'modules/vm.bicep' = {
   params: {
     location: location
     vmName: vmName
-    subnetId: spoke.outputs.spokeSubnetId // Plaats de VM in het spoke-subnet
+    subnetId: spoke.outputs.spokeSubnetId
     adminUsername: adminUsername
     adminPassword: adminPassword
   }
-  dependsOn: [
-    spoke // Zorg ervoor dat de spoke eerst is aangemaakt
-  ]
 }
