@@ -2,7 +2,7 @@
 
 # Trigger de pipeline automatisch bij wijzigingen in de 'main' branch.
 trigger:
-- main
+- none
 
 # Definieer variabelen die in de hele pipeline worden gebruikt.
 variables:
