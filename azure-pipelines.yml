@@ -91,10 +91,6 @@ stages:
           }
         azurePowerShellVersion: 'LatestVersion'
         pwsh: true
-
-
-
-
 - stage: Deploy
   displayName: 'Fase 3: Rol Infrastructuur Uit'
   dependsOn: Test
@@ -102,10 +98,9 @@ stages:
   jobs:
   - deployment: DeployInfrastructure
     displayName: 'Uitrol van Hub-en-Spoke Architectuur'
+    environment: 'production' 
     pool:
       vmImage: 'ubuntu-latest'
-    # Gebruik een 'environment' om handmatige goedkeuringen in te stellen voor productie.
-    environment: 'production' 
     strategy:
       runOnce:
         deploy:
@@ -122,5 +117,4 @@ stages:
                   --name "pipeline-deployment-$(Build.BuildId)" \
                   --resource-group $(resourceGroupName) \
                   --template-file $(bicepTemplateFile) \
-                  --parameters $(bicepParameterFile) \
-                  --parameters adminPassword=$(adminPassword) # Geef het geheime wachtwoord door
+                  --parameters location=$(location) vmName='win-vm-workload-01' adminUsername='azureuser' adminPassword=$(adminPassword)
