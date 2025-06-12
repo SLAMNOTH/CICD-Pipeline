@@ -48,7 +48,6 @@ stages:
         Inline: |
           Write-Host "Simuleren van de uitrol met PowerShell om wijzigingen te bekijken..."
 
-          # Maak een hashtable voor de parameters om het geheime wachtwoord veilig door te geven
           $templateParameters = @{
             "adminPassword" = "$(adminPassword)"
           }
@@ -59,8 +58,10 @@ stages:
             -TemplateParameterFile "$(bicepParameterFile)" `
             -TemplateParameterObject $templateParameters
 
-        pwsh: true # Zorgt ervoor dat PowerShell Core wordt gebruikt
-        
+        # --- DEZE REGEL IS TOEGEVOEGD EN CRUCIAAL ---
+        azurePowerShellVersion: 'LatestVersion' 
+        pwsh: true
+
 - stage: Deploy
   displayName: 'Fase 3: Rol Infrastructuur Uit'
   dependsOn: Test
