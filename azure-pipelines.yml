@@ -32,7 +32,6 @@ stages:
 
 
 # ... (Validate stage blijft hetzelfde) ...
-
 - stage: Test
   displayName: 'Fase 2: Test Infrastructuur (What-If met PowerShell)'
   dependsOn: Validate
@@ -43,6 +42,24 @@ stages:
     pool:
       vmImage: 'windows-latest'
     steps:
+    
+    # --- NIEUWE STAP: Garandeer dat de resourcegroep bestaat ---
+    - task: AzurePowerShell@5
+      displayName: 'Maak resourcegroep aan als deze niet bestaat'
+      inputs:
+        azureSubscription: $(azureServiceConnection)
+        ScriptType: 'InlineScript'
+        Inline: |
+          if (-not (Get-AzResourceGroup -Name "$(resourceGroupName)" -ErrorAction SilentlyContinue)) {
+            Write-Host "Resourcegroep '$(resourceGroupName)' bestaat niet. Bezig met aanmaken..."
+            New-AzResourceGroup -Name "$(resourceGroupName)" -Location "$(location)" -Force
+          } else {
+            Write-Host "Resourcegroep '$(resourceGroupName)' bestaat al."
+          }
+        azurePowerShellVersion: 'LatestVersion'
+        pwsh: true
+
+    # --- HUIDIGE WHAT-IF STAP (ONGEWIJZIGD) ---
     - task: AzurePowerShell@5
       displayName: 'Voer What-If uitrol uit met PowerShell'
       inputs:
@@ -50,34 +67,31 @@ stages:
         ScriptType: 'InlineScript'
         Inline: |
           Write-Host "Simuleren van de uitrol met PowerShell om wijzigingen te bekijken..."
-
-          # Stap 1: Bouw een compleet parameterobject met ALLE parameters voor main.bicep
+          
           $templateParameters = @{
             "location"      = "$(location)"
-            "vmName"        = "win-vm-workload-01" # Of haal dit uit pipeline variabelen
-            "adminUsername" = "azureuser"          # Of haal dit uit pipeline variabelen
-            "adminPassword" = "$(adminPassword)"   # Het geheime wachtwoord
+            "vmName"        = "win-vm-workload-01"
+            "adminUsername" = "azureuser"
+            "adminPassword" = "$(adminPassword)"
           }
 
           Write-Host "Gebruikte parameters (wachtwoord verborgen):"
           $templateParameters.GetEnumerator() | Where-Object { $_.Key -ne 'adminPassword' } | Format-Table
 
-          # Stap 2: Voer What-If uit met het parameterobject en sla het resultaat op
           $whatIfResult = Get-AzResourceGroupDeploymentWhatIfResult `
             -ResourceGroupName "$(resourceGroupName)" `
             -TemplateFile "$(bicepTemplateFile)" `
-            -TemplateParameterObject $templateParameters # Gebruik ALLEEN het object
+            -TemplateParameterObject $templateParameters
 
-          # Stap 3: Controleer of er wijzigingen zijn en formatteer ze als JSON voor de log
           if ($whatIfResult.Changes) {
             Write-Host "Gedetecteerde wijzigingen:"
             $whatIfResult.Changes | ConvertTo-Json -Depth 5 | Write-Output
           } else {
             Write-Host "What-If is succesvol uitgevoerd. Er zijn geen wijzigingen gedetecteerd."
           }
-
         azurePowerShellVersion: 'LatestVersion'
         pwsh: true
+
 
 
 
