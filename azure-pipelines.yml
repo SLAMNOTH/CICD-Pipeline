@@ -7,7 +7,6 @@ variables:
   resourceGroupName: 'JUICT-HUB-SPOKE-PROD'
   location: 'westeurope'
   bicepTemplateFile: './main.bicep'
-  bicepParameterFile: './main.bicepparam'
   azureServiceConnection: 'azure-connection'
 
 stages:
@@ -30,8 +29,6 @@ stages:
     - task: MicrosoftSecurityDevOps@1
       displayName: 'Voer Microsoft Security DevOps-analyse uit'
 
-
-# ... (Validate stage blijft hetzelfde) ...
 - stage: Test
   displayName: 'Fase 2: Test Infrastructuur (What-If met PowerShell)'
   dependsOn: Validate
@@ -42,8 +39,6 @@ stages:
     pool:
       vmImage: 'windows-latest'
     steps:
-    
-    # --- NIEUWE STAP: Garandeer dat de resourcegroep bestaat ---
     - task: AzurePowerShell@5
       displayName: 'Maak resourcegroep aan als deze niet bestaat'
       inputs:
@@ -52,37 +47,25 @@ stages:
         Inline: |
           if (-not (Get-AzResourceGroup -Name "$(resourceGroupName)" -ErrorAction SilentlyContinue)) {
             Write-Host "Resourcegroep '$(resourceGroupName)' bestaat niet. Bezig met aanmaken..."
-            New-AzResourceGroup -Name "$(resourceGroupName)" -Location "$(location)" -Force
+            New-AzResourceGroup -Name "$(resourceGroupName)" -Location "$(location)"
           } else {
             Write-Host "Resourcegroep '$(resourceGroupName)' bestaat al."
           }
         azurePowerShellVersion: 'LatestVersion'
         pwsh: true
-
-    # --- HUIDIGE WHAT-IF STAP (ONGEWIJZIGD) ---
     - task: AzurePowerShell@5
       displayName: 'Voer What-If uitrol uit met PowerShell'
       inputs:
         azureSubscription: $(azureServiceConnection)
         ScriptType: 'InlineScript'
         Inline: |
-          Write-Host "Simuleren van de uitrol met PowerShell om wijzigingen te bekijken..."
-          
           $templateParameters = @{
             "location"      = "$(location)"
             "vmName"        = "win-vm-workload-01"
             "adminUsername" = "azureuser"
             "adminPassword" = "$(adminPassword)"
           }
-
-          Write-Host "Gebruikte parameters (wachtwoord verborgen):"
-          $templateParameters.GetEnumerator() | Where-Object { $_.Key -ne 'adminPassword' } | Format-Table
-
-          $whatIfResult = Get-AzResourceGroupDeploymentWhatIfResult `
-            -ResourceGroupName "$(resourceGroupName)" `
-            -TemplateFile "$(bicepTemplateFile)" `
-            -TemplateParameterObject $templateParameters
-
+          $whatIfResult = Get-AzResourceGroupDeploymentWhatIfResult -ResourceGroupName "$(resourceGroupName)" -TemplateFile "$(bicepTemplateFile)" -TemplateParameterObject $templateParameters
           if ($whatIfResult.Changes) {
             Write-Host "Gedetecteerde wijzigingen:"
             $whatIfResult.Changes | ConvertTo-Json -Depth 5 | Write-Output
@@ -91,6 +74,7 @@ stages:
           }
         azurePowerShellVersion: 'LatestVersion'
         pwsh: true
+
 - stage: Deploy
   displayName: 'Fase 3: Rol Infrastructuur Uit'
   dependsOn: Test
@@ -105,6 +89,9 @@ stages:
       runOnce:
         deploy:
           steps:
+          # --- DEZE STAP IS CRUCIAAL EN TOEGEVOEGD ---
+          - checkout: self
+          
           - task: AzureCLI@2
             displayName: 'Rol Bicep-template uit naar Azure'
             inputs:
